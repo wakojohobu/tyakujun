@@ -3,256 +3,237 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>着順判定らくらく君</title>
+<title>ラインスキャン 着順判定 完全版</title>
+<script src="https://cdn.tailwindcss.com"></script>
 <style>
-  body {
-    margin: 0;
-    font-family: "Segoe UI", sans-serif;
-    background: #fafafa;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    overflow-x: hidden;
-  }
-  header {
-    text-align: center;
-    background: #0078d7;
-    color: white;
-    width: 100%;
-    padding: 10px 0;
-    font-size: 1.2rem;
-    font-weight: bold;
-  }
-  #video-container {
-    position: relative;
-    width: 90vw;
-    max-width: 500px;
-    aspect-ratio: 4/3;
-    overflow: hidden;
-    border: 2px solid #0078d7;
-    border-radius: 10px;
-    margin-top: 10px;
-  }
-  video, canvas {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    object-fit: cover;
-  }
-  #controls {
-    display: flex;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px;
-  }
-  button {
-    padding: 10px 14px;
-    font-size: 1rem;
-    border: none;
-    border-radius: 8px;
-    color: white;
-    background-color: #0078d7;
-    cursor: pointer;
-    transition: 0.2s;
-  }
-  button:hover { background-color: #005fa3; }
-  #status {
-    margin-top: 5px;
-    font-size: 0.9rem;
-    color: #555;
-  }
-  #results {
-    width: 90vw;
-    max-width: 500px;
-    margin-top: 10px;
-    background: white;
-    border-radius: 10px;
-    padding: 8px;
-    box-shadow: 0 0 4px rgba(0,0,0,0.2);
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  th, td {
-    padding: 4px;
-    text-align: center;
-    border-bottom: 1px solid #ddd;
-  }
-  th { background-color: #f0f0f0; }
-  #info {
-    font-size: 0.85rem;
-    color: #333;
-    background: #fff3cd;
-    padding: 8px;
-    margin: 8px;
-    border-left: 4px solid #ffca28;
-    border-radius: 5px;
-  }
+body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+#video-wrapper { position: relative; width: 100%; aspect-video; background-color: #000; border-radius: 12px; overflow: hidden; margin-bottom: 12px; }
+#video { width: 100%; height: 100%; object-fit: cover; }
+#scan-line { position: absolute; top:0; height:100%; width:2px; background:red; z-index:20; pointer-events:none; }
+#capture-canvas { display:none; }
+#result-canvas { width:100%; height:200px; background:#111; display:block; }
+table { width:100%; border-collapse: collapse; }
+th, td { border:1px solid #ccc; padding:4px; text-align:center; font-size:0.875rem; }
+.scrollable { overflow-x:auto; }
 </style>
 </head>
-<body>
-  <header>着順判定らくらく君 🏁</header>
+<body class="p-4">
 
-  <div id="info">
-    💡スリット幅とは：カメラが「通過ライン」を読み取る幅のことです。<br>
-    幅が広いほど検出が安定しますが、反応が少し遅れます。
+<h1 class="text-2xl font-bold text-center text-indigo-700 mb-4">🏁 ラインスキャン 着順判定 完全版</h1>
+
+<!-- コントロールパネル -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-4">
+
+  <div class="flex flex-col space-y-2">
+    <button id="setup-camera-button" class="bg-green-600 hover:bg-green-700 text-white py-2 rounded">📷 カメラ起動</button>
+    <select id="camera-select" class="p-2 border rounded" disabled>
+      <option>カメラを起動してください</option>
+    </select>
   </div>
 
-  <div id="video-container">
-    <video id="video" autoplay playsinline></video>
-    <canvas id="overlay"></canvas>
+  <div class="flex flex-col space-y-2">
+    <button id="start-button" class="bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded" disabled>▶️ スキャン開始</button>
+    <button id="stop-button" class="bg-red-500 hover:bg-red-600 text-white py-2 rounded hidden">⏹️ スキャン停止</button>
   </div>
 
-  <div id="controls">
-    <button id="startBtn">▶ スタート</button>
-    <button id="stopBtn">⏸ ストップ</button>
-    <button id="resetBtn">🔄 リセット</button>
+  <div class="flex flex-col space-y-2">
+    <button id="sw-start" class="bg-blue-600 hover:bg-blue-700 text-white py-2 rounded">⏱️ ストップウォッチ スタート</button>
+    <button id="sw-stop" class="bg-blue-400 hover:bg-blue-500 text-white py-2 rounded">⏹️ 停止</button>
+    <button id="sw-reset" class="bg-gray-400 hover:bg-gray-500 text-white py-2 rounded">🔄 リセット</button>
   </div>
 
-  <div id="status">カメラ準備中...</div>
+</div>
 
-  <div id="results">
-    <table>
-      <thead>
-        <tr><th>順位</th><th>色</th><th>タイム(秒)</th></tr>
-      </thead>
-      <tbody id="resultTableBody"></tbody>
-    </table>
-  </div>
+<!-- スリット幅調整 -->
+<div class="mb-4 bg-white p-2 rounded shadow">
+  <label for="scan-offset" class="font-semibold">スリット幅調整 (ピクセル):</label>
+  <input type="range" id="scan-width" min="1" max="20" value="2" step="1" class="w-full">
+  <p class="text-sm text-gray-600">スリット幅が広いほど通過選手の形が太く、判定しやすいが細かい動きは不明瞭に。狭いほど個別位置は鮮明だが検出に弱くなる。</p>
+</div>
+
+<!-- 映像プレビュー -->
+<div id="video-wrapper">
+  <video id="video" playsinline autoplay muted></video>
+  <div id="scan-line"></div>
+</div>
+
+<!-- ラインスキャン結果 -->
+<h2 class="text-lg font-semibold mb-2">ラインスキャン画像</h2>
+<canvas id="result-canvas"></canvas>
+
+<!-- ランキング表 -->
+<h2 class="text-lg font-semibold mt-4 mb-2">着順・タイム一覧</h2>
+<div class="scrollable">
+<table>
+<thead>
+<tr>
+  <th>着順</th>
+  <th>チーム</th>
+  <th>タイム</th>
+</tr>
+</thead>
+<tbody id="ranking-body">
+</tbody>
+</table>
+</div>
+
+<!-- 非表示キャプチャ用 -->
+<canvas id="capture-canvas"></canvas>
 
 <script>
-let video = document.getElementById('video');
-let canvas = document.getElementById('overlay');
-let ctx = canvas.getContext('2d');
+const video = document.getElementById('video');
+const captureCanvas = document.getElementById('capture-canvas');
+const captureCtx = captureCanvas.getContext('2d');
+const resultCanvas = document.getElementById('result-canvas');
+const resultCtx = resultCanvas.getContext('2d');
+
+const setupCameraButton = document.getElementById('setup-camera-button');
+const startButton = document.getElementById('start-button');
+const stopButton = document.getElementById('stop-button');
+const cameraSelect = document.getElementById('camera-select');
+
+const scanLine = document.getElementById('scan-line');
+const scanWidthInput = document.getElementById('scan-width');
+
+const swStart = document.getElementById('sw-start');
+const swStop = document.getElementById('sw-stop');
+const swReset = document.getElementById('sw-reset');
+let swInterval = null;
+let swTime = 0;
+
+const rankingBody = document.getElementById('ranking-body');
+
+let stream = null;
 let scanning = false;
-let slitY = 0;
-let results = [];
-let stopwatchInterval, startTime;
+let scanX = 0;
+const FRAME_WIDTH = 1;
+const RESULT_HEIGHT = 200;
 
-// === カメラ起動 ===
-navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-.then(stream => {
-  video.srcObject = stream;
-  video.onloadedmetadata = () => {
-    video.play();
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    slitY = canvas.height / 2;
-    drawLine();
-    document.getElementById("status").textContent = "準備完了：スタートを押してください";
-  };
-}).catch(err => {
-  alert("カメラにアクセスできません: " + err);
-});
+let trackResults = [];
 
-// === ライン描画 ===
-function drawLine() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = "lime";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(0, slitY);
-  ctx.lineTo(canvas.width, slitY);
-  ctx.stroke();
-  if (!scanning) requestAnimationFrame(drawLine);
+let videoDevices = [];
+
+// ---------------------------------------------------
+// ストップウォッチ
+// ---------------------------------------------------
+function updateStopwatchDisplay() {
+  document.title = `⏱️ ${formatTime(swTime)}`;
 }
-
-// === RGB→HSV変換 ===
-function rgbToHsv(r, g, b) {
-  r /= 255; g /= 255; b /= 255;
-  let max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h, s, v = max;
-  let d = max - min;
-  s = max === 0 ? 0 : d / max;
-  if (max === min) h = 0;
-  else {
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-      case g: h = (b - r) / d + 2; break;
-      case b: h = (r - g) / d + 4; break;
-    }
-    h /= 6;
-  }
-  return [h * 360, s * 100, v * 100];
+function formatTime(ms) {
+  const s = Math.floor(ms/1000);
+  const cs = Math.floor((ms%1000)/10);
+  return String(s).padStart(2,'0')+':'+String(cs).padStart(2,'0');
 }
+swStart.onclick = ()=>{ if(!swInterval) swInterval=setInterval(()=>{swTime+=10; updateStopwatchDisplay()},10);}
+swStop.onclick = ()=>{ if(swInterval){clearInterval(swInterval); swInterval=null;}}
+swReset.onclick = ()=>{swTime=0; updateStopwatchDisplay();}
 
-// === 色検出（HSVベース） ===
-function detectColor() {
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  let frame = ctx.getImageData(0, slitY, canvas.width, 3); // 3px幅サンプル
-  let totalH = 0, totalS = 0, totalV = 0, count = 0;
+// ---------------------------------------------------
+// カメラ
+// ---------------------------------------------------
+setupCameraButton.onclick = async ()=>{
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null;}
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',frameRate:{ideal:60}}, audio:false});
+    video.srcObject = stream;
+    await video.play();
+    startButton.disabled=false;
+    cameraSelect.disabled=false;
+  } catch(e){ alert('カメラ起動失敗:'+e);}
+};
+
+// ---------------------------------------------------
+// スキャン
+// ---------------------------------------------------
+startButton.onclick = ()=>{ scanning=true; scanX=0; resultCanvas.width=1; trackResults=[]; startButton.disabled=true; stopButton.classList.remove('hidden'); scanLoop();}
+stopButton.onclick = ()=>{
+  scanning=false; stopButton.classList.add('hidden'); startButton.disabled=false;
+  if(swInterval){ clearInterval(swInterval); swInterval=null; } // SWも停止
+};
+
+function scanLoop(){
+  if(!scanning) return;
+  captureCanvas.width=video.videoWidth; captureCanvas.height=video.videoHeight;
+  captureCtx.drawImage(video,0,0,captureCanvas.width,captureCanvas.height);
   
-  for (let i = 0; i < frame.data.length; i += 4) {
-    const [r, g, b] = frame.data.slice(i, i + 3);
-    const [h, s, v] = rgbToHsv(r, g, b);
-    totalH += h; totalS += s; totalV += v; count++;
+  const width = parseInt(scanWidthInput.value);
+  const scanXPos = Math.floor(captureCanvas.width/2 - width/2);
+  const imageData = captureCtx.getImageData(scanXPos,0,width,captureCanvas.height);
+
+  // HSV変換して色判定
+  const hValues = [];
+  const teamsDetected = [];
+  for(let y=0;y<imageData.height;y++){
+    for(let x=0;x<imageData.width;x++){
+      const idx=(y*imageData.width+x)*4;
+      const r=imageData.data[idx];
+      const g=imageData.data[idx+1];
+      const b=imageData.data[idx+2];
+      const hsv=rgb2hsv(r,g,b);
+      const h=hsv[0], s=hsv[1], v=hsv[2];
+      let team='';
+      if(v>0.2 && s>0.4){
+        if(h>=0 && h<20) team='赤';
+        else if(h>=160 && h<=180) team='赤';
+        else if(h>=40 && h<90) team='黄';
+        else if(h>=100 && h<140) team='青';
+        else if(h>=20 && h<40) team='橙';
+        else if(h>=140 && h<160) team='紫';
+        else team='白';
+      }
+      if(team) teamsDetected.push(team);
+    }
   }
-  const avgH = totalH / count;
-  const avgS = totalS / count;
-  const avgV = totalV / count;
+  const uniqueTeams=[...new Set(teamsDetected)];
+  uniqueTeams.forEach(team=>{
+    const exists=trackResults.find(t=>t.team===team);
+    if(!exists){
+      trackResults.push({team:team,time:swTime});
+      updateRankingTable();
+    }
+  });
 
-  let color = null;
+  // 結果キャンバス描画
+  const resultWidth=resultCanvas.width;
+  resultCanvas.width=resultWidth+FRAME_WIDTH;
+  resultCanvas.height=RESULT_HEIGHT;
+  if(resultWidth>0) resultCtx.drawImage(resultCanvas,0,0,resultWidth,RESULT_HEIGHT,resultWidth,0,resultWidth,RESULT_HEIGHT); 
+  const tempCanvas=document.createElement('canvas'); tempCanvas.width=FRAME_WIDTH; tempCanvas.height=imageData.height;
+  tempCanvas.getContext('2d').putImageData(imageData,0,0);
+  resultCtx.drawImage(tempCanvas,resultWidth,0,FRAME_WIDTH,RESULT_HEIGHT);
 
-  // === HSV色相ベースの安定判定 ===
-  if ((avgH < 15 || avgH > 340) && avgS > 50 && avgV > 40) color = "赤";
-  else if (avgS < 20 && avgV > 80) color = "白";
-  else if (avgS > 40 && avgV > 40) color = "マルチ色";
+  scanX+=FRAME_WIDTH;
+  requestAnimationFrame(scanLoop);
+}
 
-  if (color && !results.some(r => r.color === color)) {
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-    results.push({ rank: results.length + 1, color, time: elapsed });
-    updateTable();
+// HSV変換
+function rgb2hsv(r,g,b){
+  r/=255; g/=255; b/=255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b);
+  const d=max-min;
+  let h=0,s=0,v=max;
+  s=max===0?0:d/max;
+  if(d!==0){
+    if(max===r) h=((g-b)/d)%6;
+    else if(max===g) h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h=Math.round(h*60); if(h<0) h+=360;
   }
-
-  if (scanning) requestAnimationFrame(detectColor);
+  return [h,s,v];
 }
 
-// === テーブル更新 ===
-function updateTable() {
-  const tbody = document.getElementById("resultTableBody");
-  tbody.innerHTML = results.map(r =>
-    `<tr><td>${r.rank}</td><td>${r.color}</td><td>${r.time}</td></tr>`
-  ).join("");
+// ランキング表更新
+function updateRankingTable(){
+  rankingBody.innerHTML='';
+  trackResults.sort((a,b)=>a.time-b.time).forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    const td1=document.createElement('td'); td1.textContent=i+1;
+    const td2=document.createElement('td'); td2.textContent=r.team;
+    const td3=document.createElement('td'); td3.textContent=formatTime(r.time);
+    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+    rankingBody.appendChild(tr);
+  });
 }
-
-// === ストップウォッチ機能 ===
-function startStopwatch() {
-  startTime = Date.now();
-  stopwatchInterval = setInterval(() => {
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-    document.getElementById("status").textContent = `計測中：${elapsed} 秒`;
-  }, 100);
-}
-function stopStopwatch() {
-  clearInterval(stopwatchInterval);
-}
-
-// === ボタン操作 ===
-document.getElementById('startBtn').onclick = () => {
-  if (!scanning) {
-    scanning = true;
-    results = [];
-    updateTable();
-    startStopwatch();
-    requestAnimationFrame(detectColor);
-  }
-};
-document.getElementById('stopBtn').onclick = () => {
-  scanning = false;
-  stopStopwatch();
-  document.getElementById("status").textContent = "停止中";
-  drawLine();
-};
-document.getElementById('resetBtn').onclick = () => {
-  scanning = false;
-  results = [];
-  updateTable();
-  stopStopwatch();
-  document.getElementById("status").textContent = "リセット完了";
-  drawLine();
-};
 </script>
 </body>
 </html>
