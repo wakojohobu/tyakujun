@@ -3,232 +3,256 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>着順判定らくらく君（タイム計測対応）</title>
+<title>着順判定らくらく君</title>
 <style>
-body {
-  font-family: "Segoe UI", sans-serif;
-  background: #f0f4f9;
-  margin: 0; padding: 10px;
-}
-.container {
-  max-width: 900px;
-  margin: 0 auto;
-  text-align: center;
-}
-button {
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: bold;
-}
-video, canvas {
-  width: 100%;
-  max-width: 800px;
-  border-radius: 12px;
-  background: #000;
-}
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  margin: 10px 0;
-}
-.slider {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin: 10px;
-}
-#result-container {
-  overflow-x: auto;
-  white-space: nowrap;
-  background: #fff;
-  border-radius: 12px;
-  padding: 4px;
-  margin-top: 8px;
-}
-#result-canvas {
-  background: #000;
-  border-radius: 10px;
-}
-.label {
-  font-size: 0.9em;
-  font-weight: bold;
-}
-#stopwatch-display {
-  font-family: monospace;
-  font-size: 1.2em;
-  color: #2b5fff;
-}
+  body {
+    margin: 0;
+    font-family: "Segoe UI", sans-serif;
+    background: #fafafa;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+  }
+  header {
+    text-align: center;
+    background: #0078d7;
+    color: white;
+    width: 100%;
+    padding: 10px 0;
+    font-size: 1.2rem;
+    font-weight: bold;
+  }
+  #video-container {
+    position: relative;
+    width: 90vw;
+    max-width: 500px;
+    aspect-ratio: 4/3;
+    overflow: hidden;
+    border: 2px solid #0078d7;
+    border-radius: 10px;
+    margin-top: 10px;
+  }
+  video, canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  #controls {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  button {
+    padding: 10px 14px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    color: white;
+    background-color: #0078d7;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  button:hover { background-color: #005fa3; }
+  #status {
+    margin-top: 5px;
+    font-size: 0.9rem;
+    color: #555;
+  }
+  #results {
+    width: 90vw;
+    max-width: 500px;
+    margin-top: 10px;
+    background: white;
+    border-radius: 10px;
+    padding: 8px;
+    box-shadow: 0 0 4px rgba(0,0,0,0.2);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th, td {
+    padding: 4px;
+    text-align: center;
+    border-bottom: 1px solid #ddd;
+  }
+  th { background-color: #f0f0f0; }
+  #info {
+    font-size: 0.85rem;
+    color: #333;
+    background: #fff3cd;
+    padding: 8px;
+    margin: 8px;
+    border-left: 4px solid #ffca28;
+    border-radius: 5px;
+  }
 </style>
 </head>
 <body>
-<div class="container">
-  <h2>🏁 着順判定らくらく君（＋タイム計測）</h2>
+  <header>着順判定らくらく君 🏁</header>
 
-  <!-- カメラ起動・スキャン操作 -->
-  <div class="controls">
-    <button id="start-camera" style="background:#2196f3;color:white;padding:8px 14px;">📷 カメラ起動</button>
-    <button id="start-scan" style="background:#4caf50;color:white;padding:8px 14px;">▶️ スキャン開始</button>
-    <button id="stop-scan" style="background:#f44336;color:white;padding:8px 14px;">⏹ 停止</button>
+  <div id="info">
+    💡スリット幅とは：カメラが「通過ライン」を読み取る幅のことです。<br>
+    幅が広いほど検出が安定しますが、反応が少し遅れます。
   </div>
 
-  <!-- ストップウォッチ -->
-  <div class="controls">
-    <button style="background:#43a047;color:white;padding:8px 12px;" onclick="startStopwatch()">⏱ スタート</button>
-    <button style="background:#e53935;color:white;padding:8px 12px;" onclick="stopStopwatch()">⏹ ストップ</button>
-    <button style="background:#ffb300;color:white;padding:8px 12px;" onclick="resetStopwatch()">🔄 リセット</button>
-    <span id="stopwatch-display">00:00.00</span>
+  <div id="video-container">
+    <video id="video" autoplay playsinline></video>
+    <canvas id="overlay"></canvas>
   </div>
 
-  <!-- スリット調整 -->
-  <div class="slider">
-    <label class="label">ライン位置:
-      <input type="range" id="scan-offset" min="-150" max="150" value="0" step="1">
-      <span id="offset-value">0</span>
-    </label>
-    <label class="label">スリット幅:
-      <input type="range" id="slit-width" min="1" max="20" value="5" step="1">
-      <span id="slit-value">5</span>
-    </label>
-    <small style="color:#666;">※スリット幅は切り取るラインの太さです。<br>
-      小さいほど精密、大きいほど形が見やすくなります。</small>
+  <div id="controls">
+    <button id="startBtn">▶ スタート</button>
+    <button id="stopBtn">⏸ ストップ</button>
+    <button id="resetBtn">🔄 リセット</button>
   </div>
 
-  <video id="video" autoplay playsinline></video>
-  <canvas id="capture-canvas" hidden></canvas>
+  <div id="status">カメラ準備中...</div>
 
-  <div id="result-container">
-    <canvas id="result-canvas" height="320"></canvas>
+  <div id="results">
+    <table>
+      <thead>
+        <tr><th>順位</th><th>色</th><th>タイム(秒)</th></tr>
+      </thead>
+      <tbody id="resultTableBody"></tbody>
+    </table>
   </div>
-</div>
 
 <script>
 let video = document.getElementById('video');
-let captureCanvas = document.getElementById('capture-canvas');
-let captureCtx = captureCanvas.getContext('2d');
-let resultCanvas = document.getElementById('result-canvas');
-let resultCtx = resultCanvas.getContext('2d');
-let scanning = false, FRAME_WIDTH = 5, scanOffset = 0;
-let stopwatchStart = 0, stopwatchElapsed = 0, stopwatchTimer = null;
-let startTime = null;
-let resultWidth = 0;
+let canvas = document.getElementById('overlay');
+let ctx = canvas.getContext('2d');
+let scanning = false;
+let slitY = 0;
+let results = [];
+let stopwatchInterval, startTime;
 
-// --- ストップウォッチ ---
-function updateStopwatchDisplay(){
-  const total = (performance.now()-stopwatchStart)+stopwatchElapsed;
-  const ms=Math.floor(total%1000/10);
-  const s=Math.floor(total/1000)%60;
-  const m=Math.floor(total/60000);
-  document.getElementById('stopwatch-display').textContent =
-    `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}.${ms.toString().padStart(2,'0')}`;
-}
-function startStopwatch(){
-  if(stopwatchTimer) return;
-  stopwatchStart = performance.now();
-  stopwatchTimer = setInterval(updateStopwatchDisplay, 33);
-}
-function stopStopwatch(){
-  if(!stopwatchTimer) return;
-  stopwatchElapsed += (performance.now()-stopwatchStart);
-  clearInterval(stopwatchTimer);
-  stopwatchTimer = null;
-}
-function resetStopwatch(){
-  clearInterval(stopwatchTimer);
-  stopwatchTimer=null;
-  stopwatchElapsed=0;
-  stopwatchStart=performance.now();
-  document.getElementById('stopwatch-display').textContent='00:00.00';
-}
-
-// --- カメラ起動 ---
-document.getElementById('start-camera').onclick = async () => {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+// === カメラ起動 ===
+navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+.then(stream => {
   video.srcObject = stream;
-};
+  video.onloadedmetadata = () => {
+    video.play();
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    slitY = canvas.height / 2;
+    drawLine();
+    document.getElementById("status").textContent = "準備完了：スタートを押してください";
+  };
+}).catch(err => {
+  alert("カメラにアクセスできません: " + err);
+});
 
-// --- スリット調整 ---
-document.getElementById('scan-offset').oninput = e => {
-  scanOffset = parseInt(e.target.value);
-  document.getElementById('offset-value').textContent = scanOffset;
-};
-document.getElementById('slit-width').oninput = e => {
-  FRAME_WIDTH = parseInt(e.target.value);
-  document.getElementById('slit-value').textContent = FRAME_WIDTH;
-};
-
-// --- スキャン開始 ---
-document.getElementById('start-scan').onclick = () => {
-  if (!video.srcObject) return alert("📷 カメラを起動してください。");
-  scanning = true;
-  resultWidth = 0;
-  resultCanvas.width = 1;
-  startTime = performance.now();
-  processFrame();
-};
-
-// --- 停止 ---
-document.getElementById('stop-scan').onclick = () => { scanning = false; };
-
-// --- 判定ロジック ---
-function detectTeamColor(r,g,b){
-  if(r>200 && g<80 && b<80) return "赤";
-  if(r>200 && g>200 && b>200) return "白";
-  if(r<80 && g<80 && b>200) return "青";
-  if(r>200 && g>200 && b<100) return "黄";
-  if(r<80 && g>150 && b<80) return "緑";
-  return null;
+// === ライン描画 ===
+function drawLine() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "lime";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, slitY);
+  ctx.lineTo(canvas.width, slitY);
+  ctx.stroke();
+  if (!scanning) requestAnimationFrame(drawLine);
 }
 
-let lastColor = null;
-let rank = 0;
+// === RGB→HSV変換 ===
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  let max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s, v = max;
+  let d = max - min;
+  s = max === 0 ? 0 : d / max;
+  if (max === min) h = 0;
+  else {
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h /= 6;
+  }
+  return [h * 360, s * 100, v * 100];
+}
 
-function processFrame(){
-  if(!scanning) return;
-  captureCanvas.width = video.videoWidth;
-  captureCanvas.height = video.videoHeight;
-  captureCtx.drawImage(video,0,0);
-  const x = Math.floor(video.videoWidth/2 + scanOffset);
-  const frame = captureCtx.getImageData(x,0,FRAME_WIDTH,video.videoHeight);
+// === 色検出（HSVベース） ===
+function detectColor() {
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  let frame = ctx.getImageData(0, slitY, canvas.width, 3); // 3px幅サンプル
+  let totalH = 0, totalS = 0, totalV = 0, count = 0;
   
-  // 判定
-  let colorCount = {赤:0,白:0,青:0,黄:0,緑:0};
-  const data = frame.data;
-  for(let i=0;i<data.length;i+=4){
-    const c = detectTeamColor(data[i],data[i+1],data[i+2]);
-    if(c) colorCount[c]++;
+  for (let i = 0; i < frame.data.length; i += 4) {
+    const [r, g, b] = frame.data.slice(i, i + 3);
+    const [h, s, v] = rgbToHsv(r, g, b);
+    totalH += h; totalS += s; totalV += v; count++;
   }
-  const detected = Object.entries(colorCount).sort((a,b)=>b[1]-a[1])[0];
-  const color = (detected[1]>50)?detected[0]:null;
+  const avgH = totalH / count;
+  const avgS = totalS / count;
+  const avgV = totalV / count;
 
-  // 通過検出
-  if(color && color!==lastColor){
-    rank++;
-    const now = performance.now();
-    const diff = now - stopwatchStart + stopwatchElapsed;
-    const ms=Math.floor(diff%1000/10);
-    const s=Math.floor(diff/1000)%60;
-    const m=Math.floor(diff/60000);
-    const timeStr=`${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}.${ms.toString().padStart(2,'0')}`;
-    
-    // タイム描画
-    resultCtx.fillStyle="white";
-    resultCtx.font="16px sans-serif";
-    resultCtx.fillText(`${rank}位(${color}) ${timeStr}`, resultWidth+10, 20*(rank%15+1));
+  let color = null;
+
+  // === HSV色相ベースの安定判定 ===
+  if ((avgH < 15 || avgH > 340) && avgS > 50 && avgV > 40) color = "赤";
+  else if (avgS < 20 && avgV > 80) color = "白";
+  else if (avgS > 40 && avgV > 40) color = "マルチ色";
+
+  if (color && !results.some(r => r.color === color)) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    results.push({ rank: results.length + 1, color, time: elapsed });
+    updateTable();
   }
-  lastColor = color;
 
-  // ラインスキャン画像描画
-  resultWidth += FRAME_WIDTH;
-  resultCanvas.width = resultWidth;
-  resultCtx.drawImage(captureCanvas, x, 0, FRAME_WIDTH, captureCanvas.height,
-                      resultWidth-FRAME_WIDTH, 0, FRAME_WIDTH, resultCanvas.height);
-  document.getElementById("result-container").scrollLeft = resultCanvas.width;
-
-  requestAnimationFrame(processFrame);
+  if (scanning) requestAnimationFrame(detectColor);
 }
+
+// === テーブル更新 ===
+function updateTable() {
+  const tbody = document.getElementById("resultTableBody");
+  tbody.innerHTML = results.map(r =>
+    `<tr><td>${r.rank}</td><td>${r.color}</td><td>${r.time}</td></tr>`
+  ).join("");
+}
+
+// === ストップウォッチ機能 ===
+function startStopwatch() {
+  startTime = Date.now();
+  stopwatchInterval = setInterval(() => {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    document.getElementById("status").textContent = `計測中：${elapsed} 秒`;
+  }, 100);
+}
+function stopStopwatch() {
+  clearInterval(stopwatchInterval);
+}
+
+// === ボタン操作 ===
+document.getElementById('startBtn').onclick = () => {
+  if (!scanning) {
+    scanning = true;
+    results = [];
+    updateTable();
+    startStopwatch();
+    requestAnimationFrame(detectColor);
+  }
+};
+document.getElementById('stopBtn').onclick = () => {
+  scanning = false;
+  stopStopwatch();
+  document.getElementById("status").textContent = "停止中";
+  drawLine();
+};
+document.getElementById('resetBtn').onclick = () => {
+  scanning = false;
+  results = [];
+  updateTable();
+  stopStopwatch();
+  document.getElementById("status").textContent = "リセット完了";
+  drawLine();
+};
 </script>
 </body>
 </html>
