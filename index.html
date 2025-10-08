@@ -1,530 +1,234 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>着順判定ラインスキャン</title>
-    <meta name="theme-color" content="#4f46e5" />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        :root { font-family: 'Inter', sans-serif; }
-        #result-container {
-            overflow-x: auto;
-            white-space: nowrap;
-            cursor: grab;
-        }
-        #capture-canvas {
-            position: fixed;
-            top: -9999px;
-            left: -9999px;
-        }
-        #video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 10;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ラインスキャン着順判定（マルチカラー＋タイム計測対応）</title>
+<style>
+body {
+  font-family: "Segoe UI", sans-serif;
+  background: #f0f4f9;
+  margin: 0; padding: 10px;
+}
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  text-align: center;
+}
+button {
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+}
+video, canvas {
+  width: 100%;
+  max-width: 800px;
+  border-radius: 12px;
+  background: #000;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 10px 0;
+}
+.slider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 10px;
+}
+#result-container {
+  overflow-x: auto;
+  white-space: nowrap;
+  background: #fff;
+  border-radius: 12px;
+  padding: 4px;
+  margin-top: 8px;
+}
+#result-canvas {
+  background: #000;
+  border-radius: 10px;
+}
+.label {
+  font-size: 0.9em;
+  font-weight: bold;
+}
+#stopwatch-display {
+  font-family: monospace;
+  font-size: 1.2em;
+  color: #2b5fff;
+}
+</style>
 </head>
-<body class="bg-gray-100 min-h-screen p-4 md:p-8">
-    <div class="max-w-4xl mx-auto">
-        <h1 class="text-3xl font-extrabold text-indigo-700 mb-6 font-bold text-center">
-            📸 ラインスキャン 着順判定ツール（高速PWA版）
-        </h1>
-
-        <div id="message-box" class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-lg mb-6 shadow-md" role="alert">
-            <p class="font-bold">🏁 高速撮影対応版 (最大30km/h目安)</p>
-            <p class="text-sm">このアプリはPWAに対応しており、オフラインでも利用可能です。下の「カメラ起動」を押してください。</p>
-        </div>
-
-        <div id="video-wrapper" class="relative w-full aspect-video bg-gray-800 rounded-xl overflow-hidden shadow-2xl mb-6 flex justify-center items-center">
-            <video id="video" playsinline autoplay muted class="hidden"></video>
-            <p id="video-placeholder" class="text-white text-center z-20">カメラ映像の準備中...</p>
-            <div id="scan-line" class="absolute h-full w-0.5 bg-red-500 pointer-events-none opacity-75 transition-all duration-1000 z-30" style="left: 50%;"></div>
-        </div>
-
-        <div class="bg-white p-5 rounded-xl shadow-lg mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
-            <div id="camera-select-container" class="flex flex-col w-full md:w-1/3">
-                <label for="camera-select" class="text-gray-700 text-sm font-semibold mb-1">カメラ選択:</label>
-                <select id="camera-select" class="p-2 border border-gray-300 rounded-lg shadow-sm bg-white text-gray-800 w-full" disabled>
-                    <option value="">カメラを起動すると選択できます</option>
-                </select>
-            </div>
-
-            <div class="flex flex-col md:flex-row gap-4 w-full md:w-auto md:ml-4">
-                <button id="setup-camera-button" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-200" onclick="setupCamera()">
-                    📷 カメラ起動
-                </button>
-
-                <button id="start-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-200" onclick="startScanning()" disabled>
-                    ▶️ スキャン開始
-                </button>
-                <button id="stop-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-200 hidden" onclick="stopScanning()">
-                    ⏹️ スキャン停止
-                </button>
-            </div>
-        </div>
-
-        <div class="bg-white p-5 rounded-xl shadow-lg mb-6 flex items-center justify-center">
-            <div class="flex items-center space-x-4">
-                <label for="scan-offset" class="text-gray-700 text-sm font-semibold whitespace-nowrap">判定ライン位置調整:</label>
-                <input type="range" id="scan-offset" min="-150" max="150" value="0" step="1" class="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                <span id="offset-value" class="text-indigo-600 font-bold w-10 text-right">0</span>
-            </div>
-        </div>
-
-        <h2 class="text-xl font-semibold text-gray-800 mb-3">判定結果 (ラインスキャン画像)</h2>
-        <div id="result-container" class="w-full h-80 bg-gray-900 rounded-xl shadow-inner border border-gray-300 overflow-x-scroll">
-            <canvas id="result-canvas" class="h-full"></canvas>
-        </div>
-        <p class="text-sm text-gray-600 mt-2">※ 画像を左右にドラッグして、通過した瞬間を確認してください。</p>
-
-        <div class="mt-6 text-center">
-            <button id="download-button" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition duration-200 hidden" onclick="downloadResult()">
-                ⬇️️ 判定画像をダウンロード
-            </button>
-        </div>
-    </div>
-
-    <canvas id="capture-canvas"></canvas>
-
-    <script>
-        // DOM要素
-        const video = document.getElementById('video');
-        const videoPlaceholder = document.getElementById('video-placeholder');
-        const captureCanvas = document.getElementById('capture-canvas');
-        const captureCtx = captureCanvas.getContext('2d');
-        const resultCanvas = document.getElementById('result-canvas');
-        const resultCtx = resultCanvas.getContext('2d');
-        const setupCameraButton = document.getElementById('setup-camera-button');
-        const startButton = document.getElementById('start-button');
-        const stopButton = document.getElementById('stop-button');
-        const downloadButton = document.getElementById('download-button');
-        const messageBox = document.getElementById('message-box');
-        const scanLine = document.getElementById('scan-line');
-        const scanOffsetInput = document.getElementById('scan-offset');
-        const offsetValueSpan = document.getElementById('offset-value');
-        const resultContainer = document.getElementById('result-container');
-        const cameraSelect = document.getElementById('camera-select');
-
-        let stream = null;
-        let scanning = false;
-        let scanX = 0;
-        let animationFrameId = null;
-        const FRAME_WIDTH = 1;
-        const RESULT_HEIGHT = 320;
-
-        let videoDevices = [];
-
-        // PWA helpers (same as元コード)
-        const toBase64 = (str) => {
-            try {
-                const latin1String = unescape(encodeURIComponent(str));
-                return btoa(latin1String);
-            } catch (e) {
-                return btoa(str);
-            }
-        };
-
-        const createManifestDataUrl = () => {
-            const manifest = {
-                name: "ラインスキャン 着順判定",
-                short_name: "PhotoFinish",
-                description: "モバイルカメラを使用した高精度ラインスキャン着順判定ツール",
-                start_url: "./",
-                display: "standalone",
-                background_color: "#ffffff",
-                theme_color: "#4f46e5",
-                icons: [{ src: "icon.png", sizes: "192x192", type: "image/png" }]
-            };
-            const utf8String = JSON.stringify(manifest);
-            return 'data:application/json;base64,' + toBase64(utf8String);
-        };
-
-        const serviceWorkerCode = `
-            const CACHE_NAME = 'linescan-v2';
-            const urlsToCache = ['/', 'index.html', 'https://cdn.tailwindcss.com'];
-            self.addEventListener('install', (event) => {
-                event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache)));
-                self.skipWaiting();
-            });
-            self.addEventListener('fetch', (event) => {
-                event.respondWith(caches.match(event.request).then(response => response || fetch(event.request)));
-            });
-            self.addEventListener('activate', (event) => {
-                const cacheWhitelist = [CACHE_NAME];
-                event.waitUntil(caches.keys().then((cacheNames) => {
-                    return Promise.all(cacheNames.map(cacheName => {
-                        if (cacheWhitelist.indexOf(cacheName) === -1) return caches.delete(cacheName);
-                    }));
-                }));
-                return self.clients.claim();
-            });
-        `;
-
-        const registerServiceWorker = () => {
-            if ('serviceWorker' in navigator) {
-                const swBase64 = toBase64(serviceWorkerCode);
-                const swUrl = `data:application/javascript;base64,${swBase64}`;
-                navigator.serviceWorker.register(swUrl, { scope: './' })
-                    .then(reg => console.log('Service Worker 登録成功:', reg.scope))
-                    .catch(error => {
-                        console.warn('Service Worker 登録失敗:', error);
-                        // 多くの環境で Data URL での登録は不可 -> 無視して続行
-                    });
-            } else {
-                console.warn('Service Worker 未サポート');
-            }
-        };
-
-        const setupPWA = () => {
-            try {
-                const link = document.createElement('link');
-                link.rel = 'manifest';
-                link.href = createManifestDataUrl();
-                document.head.appendChild(link);
-                registerServiceWorker();
-            } catch (e) {
-                console.warn('PWA setup failed:', e);
-            }
-        };
-
-        document.addEventListener('DOMContentLoaded', setupPWA);
-
-        // 初期 result canvas 高さを設定（描画前に必ず高さをセット）
-        resultCanvas.height = RESULT_HEIGHT;
-        resultCtx.imageSmoothingEnabled = false;
-
-        // スキャンオフセット表示
-        scanOffsetInput.addEventListener('input', (e) => {
-            const offsetPercent = parseInt(e.target.value, 10);
-            offsetValueSpan.textContent = offsetPercent;
-            scanLine.style.left = `calc(50% + ${offsetPercent}px)`;
-        });
-
-        // カメラ選択変更
-        cameraSelect.addEventListener('change', () => {
-            if (scanning) stopScanning();
-            setupCamera(cameraSelect.value);
-        });
-
-        // デバイス列挙とUI更新
-        async function updateDeviceList(selectedDeviceId = null) {
-            try {
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                videoDevices = devices.filter(d => d.kind === 'videoinput');
-                cameraSelect.innerHTML = '';
-                if (videoDevices.length === 0) {
-                    cameraSelect.disabled = true;
-                    cameraSelect.innerHTML = '<option value="">カメラが見つかりません</option>';
-                    return;
-                }
-                videoDevices.forEach((device, idx) => {
-                    const option = document.createElement('option');
-                    option.value = device.deviceId;
-                    option.text = device.label || `カメラ ${idx + 1}`;
-                    cameraSelect.appendChild(option);
-                });
-                if (selectedDeviceId) cameraSelect.value = selectedDeviceId;
-                else cameraSelect.value = videoDevices[0].deviceId;
-                cameraSelect.disabled = false;
-            } catch (err) {
-                console.error("デバイス列挙エラー:", err);
-                cameraSelect.disabled = true;
-                cameraSelect.innerHTML = '<option value="">デバイスリスト取得失敗</option>';
-            }
-        }
-
-        // カメラ設定（deviceId optional）
-        async function setupCamera(deviceId = null) {
-            if (stream) {
-                stream.getTracks().forEach(t => t.stop());
-                stream = null;
-            }
-
-            setupCameraButton.disabled = true;
-            startButton.disabled = true;
-            cameraSelect.disabled = true;
-
-            messageBox.className = 'bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-lg mb-6 shadow-md';
-            messageBox.innerHTML = '<p class="font-bold">カメラ起動中... (ブラウザから許可を求められます)</p>';
-
-            let streamSuccess = false;
-            let lastError = null;
-            let constraintsList = [];
-            const fpsConstraint = { frameRate: { ideal: 60 } };
-
-            if (deviceId) {
-                constraintsList.push({ audio: false, video: { deviceId: { exact: deviceId }, ...fpsConstraint } });
-            } else {
-                constraintsList.push({ audio: false, video: { facingMode: 'environment', ...fpsConstraint } });
-                constraintsList.push({ audio: false, video: { facingMode: 'user', ...fpsConstraint } });
-                constraintsList.push({ audio: false, video: fpsConstraint });
-            }
-
-            if (deviceId) constraintsList = constraintsList.slice(0, 1);
-
-            for (const constraints of constraintsList) {
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    streamSuccess = true;
-                    break;
-                } catch (err) {
-                    lastError = err;
-                    console.warn(`カメラアクセス試行失敗 (constraints: ${JSON.stringify(constraints.video)}):`, err && err.name, err && err.message);
-                }
-            }
-
-            if (streamSuccess && stream) {
-                video.srcObject = stream;
-                try {
-                    await new Promise((resolve) => {
-                        video.onloadedmetadata = () => {
-                            video.play().catch(e => console.warn("Video play failed:", e));
-                            resolve();
-                        };
-                    });
-                } catch (e) {
-                    console.warn("video play error:", e);
-                }
-
-                video.classList.remove('hidden');
-                videoPlaceholder.classList.add('hidden');
-
-                // getSettings().deviceId が未定義の場合がある -> try/catch
-                let currentDeviceId = null;
-                try {
-                    currentDeviceId = stream.getVideoTracks()[0].getSettings().deviceId || null;
-                } catch (e) {
-                    currentDeviceId = null;
-                }
-                await updateDeviceList(currentDeviceId);
-
-                startButton.disabled = false;
-                setupCameraButton.classList.add('hidden');
-                setupCameraButton.disabled = true;
-                cameraSelect.disabled = false;
-
-                messageBox.className = 'bg-green-100 border-l-4 border-green-500 text-green-800 p-4 rounded-lg mb-6 shadow-md';
-                messageBox.innerHTML = '<p class="font-bold">✅ ステップ2: カメラ準備完了</p><p class="text-sm">フィニッシュラインを中央に合わせ、「スキャン開始」を押してください。</p>';
-                return true;
-            } else {
-                console.error("カメラアクセスエラー: 最終的な失敗", lastError);
-                startButton.disabled = true;
-                setupCameraButton.disabled = false;
-                setupCameraButton.classList.remove('hidden');
-
-                let err = lastError;
-                let errorMessage =
-                    '<p class="font-bold">❌ カメラアクセス失敗</p>' +
-                    '<p class="text-sm">エラー: ' + (err?.name || '不明') + ' - ' + (err?.message || '詳細不明') + '</p>';
-                let retryButtonHtml = '<button onclick="setupCamera()" class="mt-3 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700">再試行</button>';
-
-                if (err?.name === 'NotAllowedError' || (err?.message && err.message.includes('denied'))) {
-                    errorMessage =
-                        '<p class="font-bold">🚨 権限拒否エラー (Permission Denied)</p>' +
-                        '<p class="text-sm mt-1 font-semibold text-red-800">カメラがブロックされています。ブラウザ/OSの権限設定を確認してください。</p>' +
-                        retryButtonHtml;
-                } else if (err?.name === 'NotReadableError') {
-                    errorMessage =
-                        '<p class="font-bold">⚠️ カメラ使用中エラー (NotReadableError)</p>' +
-                        '<p class="text-sm mt-1">他のアプリでカメラが使用中です。閉じてから再試行してください。</p>' +
-                        retryButtonHtml;
-                } else {
-                    errorMessage += '<p class="mt-3 text-xs">問題が解決しない場合は、ページを再読み込みして再試行してください。</p>' + retryButtonHtml;
-                }
-
-                messageBox.className = 'bg-red-100 border-l-4 border-red-500 text-red-800 p-4 rounded-lg mb-6 shadow-md';
-                messageBox.innerHTML = errorMessage;
-
-                if (stream) {
-                    stream.getTracks().forEach(track => track.stop());
-                    stream = null;
-                }
-                return false;
-            }
-        }
-
-        // プロセスフレーム（メイン）
-        function processFrame() {
-            if (!scanning || video.paused || video.ended) return;
-
-            // captureCanvas の大きさをビデオに合わせる
-            captureCanvas.width = video.videoWidth || captureCanvas.width || 640;
-            captureCanvas.height = video.videoHeight || captureCanvas.height || 480;
-
-            // 結果キャンバスの高さを常に固定
-            if (resultCanvas.height !== RESULT_HEIGHT) resultCanvas.height = RESULT_HEIGHT;
-
-            try {
-                captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
-            } catch (e) {
-                // 描画できないフレームはスキップ
-                console.warn('drawImage failed:', e);
-                if (scanning) animationFrameId = requestAnimationFrame(processFrame);
-                return;
-            }
-
-            // オフセットと scanLineX を計算して範囲内に収める（clamp）
-            const offset = parseInt(scanOffsetInput.value, 10) || 0;
-            let scanLineX = Math.floor(captureCanvas.width / 2) + offset;
-            scanLineX = Math.max(0, Math.min(captureCanvas.width - FRAME_WIDTH, scanLineX));
-
-            // 既存の画像を読み取る（0幅の場合はスキップ）
-            const resultWidth = resultCanvas.width || 0;
-            let existingData = null;
-            if (resultWidth > 0) {
-                try {
-                    existingData = resultCtx.getImageData(0, 0, resultWidth, RESULT_HEIGHT);
-                } catch (e) {
-                    console.warn("既存データ取得時エラー:", e);
-                    existingData = null;
-                }
-            }
-
-            // 結果キャンバスの幅を拡張（height は固定）
-            const newWidth = resultWidth + FRAME_WIDTH;
-            // 保存してから幅を変える（キャンバス幅を変えると内容はクリアされる）
-            resultCanvas.width = newWidth;
-            resultCanvas.height = RESULT_HEIGHT;
-            resultCtx.imageSmoothingEnabled = false;
-
-            // 既存データを復元
-            if (existingData) {
-                try {
-                    resultCtx.putImageData(existingData, 0, 0);
-                } catch (e) {
-                    console.warn("既存データ復元エラー:", e);
-                }
-            }
-
-            // キャプチャから1列を取り出す
-            try {
-                const imageData = captureCtx.getImageData(scanLineX, 0, FRAME_WIDTH, captureCanvas.height);
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = FRAME_WIDTH;
-                tempCanvas.height = captureCanvas.height;
-                const tempCtx = tempCanvas.getContext('2d');
-                tempCtx.putImageData(imageData, 0, 0);
-
-                // 結果キャンバスの高さに合わせて縮小（もしくは伸張）して右端に描画
-                resultCtx.drawImage(tempCanvas, resultWidth, 0, FRAME_WIDTH, RESULT_HEIGHT);
-            } catch (e) {
-                console.warn("スリット取得/描画エラー:", e);
-            }
-
-            scanX += FRAME_WIDTH;
-            // スクロールを右端へ（ユーザーが手動で戻している場合は無理に戻さない実装も可能）
-            resultContainer.scrollLeft = resultContainer.scrollWidth;
-
-            if (scanning) {
-                animationFrameId = requestAnimationFrame(processFrame);
-            }
-        }
-
-        // スキャン開始
-        async function startScanning() {
-            if (!stream || startButton.disabled) {
-                messageBox.className = 'bg-red-100 border-l-4 border-red-500 text-red-800 p-4 rounded-lg mb-6 shadow-md';
-                messageBox.innerHTML = '<p class="font-bold">🚨 警告</p><p class="text-sm">先に「カメラ起動」ボタンを押してください。</p>';
-                return;
-            }
-            if (scanning) return;
-
-            scanning = true;
-            scanX = 0;
-
-            startButton.classList.add('hidden');
-            stopButton.classList.remove('hidden');
-            downloadButton.classList.add('hidden');
-            cameraSelect.disabled = true;
-
-            messageBox.className = 'bg-indigo-100 border-l-4 border-indigo-500 text-indigo-800 p-4 rounded-lg mb-6 shadow-md';
-            messageBox.innerHTML = '<p class="font-bold">🟢 スキャン中...</p><p class="text-sm">フィニッシュラインを画面中央に維持してください。</p>';
-
-            // 結果キャンバス初期化（幅は0→拡張）
-            resultCanvas.width = 0;
-            resultCanvas.height = RESULT_HEIGHT;
-            resultCtx.clearRect(0, 0, resultCanvas.width, resultCanvas.height);
-
-            animationFrameId = requestAnimationFrame(processFrame);
-        }
-
-        // スキャン停止
-        function stopScanning() {
-            scanning = false;
-            if (animationFrameId) cancelAnimationFrame(animationFrameId);
-
-            startButton.classList.remove('hidden');
-            stopButton.classList.add('hidden');
-            downloadButton.classList.remove('hidden');
-            cameraSelect.disabled = false;
-
-            messageBox.className = 'bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-lg mb-6 shadow-md';
-            messageBox.innerHTML = '<p class="font-bold">⏸️ スキャン停止</p><p class="text-sm">下の画像を左右にスクロールして着順を判定してください。</p>';
-        }
-
-        // ダウンロード
-        function downloadResult() {
-            try {
-                const dataURL = resultCanvas.toDataURL('image/png');
-                const a = document.createElement('a');
-                a.href = dataURL;
-                a.download = `PhotoFinish_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-            } catch (e) {
-                console.error('ダウンロード失敗:', e);
-            }
-        }
-
-        // ドラッグ（pointerイベントでマウス/タッチを統一）
-        let isDragging = false;
-        let startX = 0;
-        let scrollLeft = 0;
-
-        resultContainer.addEventListener('pointerdown', (e) => {
-            isDragging = true;
-            resultContainer.setPointerCapture(e.pointerId);
-            resultContainer.style.cursor = 'grabbing';
-            const rect = resultContainer.getBoundingClientRect();
-            startX = e.clientX - rect.left;
-            scrollLeft = resultContainer.scrollLeft;
-            e.preventDefault();
-        });
-
-        resultContainer.addEventListener('pointermove', (e) => {
-            if (!isDragging) return;
-            const rect = resultContainer.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const walk = (x - startX) * 1.5;
-            resultContainer.scrollLeft = scrollLeft - walk;
-        });
-
-        resultContainer.addEventListener('pointerup', (e) => {
-            isDragging = false;
-            try { resultContainer.releasePointerCapture(e.pointerId); } catch (er) {}
-            resultContainer.style.cursor = 'grab';
-        });
-
-        resultContainer.addEventListener('pointerleave', () => {
-            isDragging = false;
-            resultContainer.style.cursor = 'grab';
-        });
-
-        // ページ読み込み時にデバイスリスト取得を試みる（権限が必要な場合は呼び出しでエラーになりますが、無害）
-        (async () => {
-            try {
-                await updateDeviceList();
-            } catch (e) {
-                // 無視して続行
-            }
-        })();
-
-    </script>
+<body>
+<div class="container">
+  <h2>🏁 ラインスキャン着順判定（マルチカラー＋タイム計測）</h2>
+
+  <!-- カメラ起動・スキャン操作 -->
+  <div class="controls">
+    <button id="start-camera" style="background:#2196f3;color:white;padding:8px 14px;">📷 カメラ起動</button>
+    <button id="start-scan" style="background:#4caf50;color:white;padding:8px 14px;">▶️ スキャン開始</button>
+    <button id="stop-scan" style="background:#f44336;color:white;padding:8px 14px;">⏹ 停止</button>
+  </div>
+
+  <!-- ストップウォッチ -->
+  <div class="controls">
+    <button style="background:#43a047;color:white;padding:8px 12px;" onclick="startStopwatch()">⏱ スタート</button>
+    <button style="background:#e53935;color:white;padding:8px 12px;" onclick="stopStopwatch()">⏹ ストップ</button>
+    <button style="background:#ffb300;color:white;padding:8px 12px;" onclick="resetStopwatch()">🔄 リセット</button>
+    <span id="stopwatch-display">00:00.00</span>
+  </div>
+
+  <!-- スリット調整 -->
+  <div class="slider">
+    <label class="label">ライン位置:
+      <input type="range" id="scan-offset" min="-150" max="150" value="0" step="1">
+      <span id="offset-value">0</span>
+    </label>
+    <label class="label">スリット幅:
+      <input type="range" id="slit-width" min="1" max="20" value="5" step="1">
+      <span id="slit-value">5</span>
+    </label>
+    <small style="color:#666;">※スリット幅は切り取るラインの太さです。<br>
+      小さいほど精密、大きいほど形が見やすくなります。</small>
+  </div>
+
+  <video id="video" autoplay playsinline></video>
+  <canvas id="capture-canvas" hidden></canvas>
+
+  <div id="result-container">
+    <canvas id="result-canvas" height="320"></canvas>
+  </div>
+</div>
+
+<script>
+let video = document.getElementById('video');
+let captureCanvas = document.getElementById('capture-canvas');
+let captureCtx = captureCanvas.getContext('2d');
+let resultCanvas = document.getElementById('result-canvas');
+let resultCtx = resultCanvas.getContext('2d');
+let scanning = false, FRAME_WIDTH = 5, scanOffset = 0;
+let stopwatchStart = 0, stopwatchElapsed = 0, stopwatchTimer = null;
+let startTime = null;
+let resultWidth = 0;
+
+// --- ストップウォッチ ---
+function updateStopwatchDisplay(){
+  const total = (performance.now()-stopwatchStart)+stopwatchElapsed;
+  const ms=Math.floor(total%1000/10);
+  const s=Math.floor(total/1000)%60;
+  const m=Math.floor(total/60000);
+  document.getElementById('stopwatch-display').textContent =
+    `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}.${ms.toString().padStart(2,'0')}`;
+}
+function startStopwatch(){
+  if(stopwatchTimer) return;
+  stopwatchStart = performance.now();
+  stopwatchTimer = setInterval(updateStopwatchDisplay, 33);
+}
+function stopStopwatch(){
+  if(!stopwatchTimer) return;
+  stopwatchElapsed += (performance.now()-stopwatchStart);
+  clearInterval(stopwatchTimer);
+  stopwatchTimer = null;
+}
+function resetStopwatch(){
+  clearInterval(stopwatchTimer);
+  stopwatchTimer=null;
+  stopwatchElapsed=0;
+  stopwatchStart=performance.now();
+  document.getElementById('stopwatch-display').textContent='00:00.00';
+}
+
+// --- カメラ起動 ---
+document.getElementById('start-camera').onclick = async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  video.srcObject = stream;
+};
+
+// --- スリット調整 ---
+document.getElementById('scan-offset').oninput = e => {
+  scanOffset = parseInt(e.target.value);
+  document.getElementById('offset-value').textContent = scanOffset;
+};
+document.getElementById('slit-width').oninput = e => {
+  FRAME_WIDTH = parseInt(e.target.value);
+  document.getElementById('slit-value').textContent = FRAME_WIDTH;
+};
+
+// --- スキャン開始 ---
+document.getElementById('start-scan').onclick = () => {
+  if (!video.srcObject) return alert("📷 カメラを起動してください。");
+  scanning = true;
+  resultWidth = 0;
+  resultCanvas.width = 1;
+  startTime = performance.now();
+  processFrame();
+};
+
+// --- 停止 ---
+document.getElementById('stop-scan').onclick = () => { scanning = false; };
+
+// --- 判定ロジック ---
+function detectTeamColor(r,g,b){
+  if(r>200 && g<80 && b<80) return "赤";
+  if(r>200 && g>200 && b>200) return "白";
+  if(r<80 && g<80 && b>200) return "青";
+  if(r>200 && g>200 && b<100) return "黄";
+  if(r<80 && g>150 && b<80) return "緑";
+  return null;
+}
+
+let lastColor = null;
+let rank = 0;
+
+function processFrame(){
+  if(!scanning) return;
+  captureCanvas.width = video.videoWidth;
+  captureCanvas.height = video.videoHeight;
+  captureCtx.drawImage(video,0,0);
+  const x = Math.floor(video.videoWidth/2 + scanOffset);
+  const frame = captureCtx.getImageData(x,0,FRAME_WIDTH,video.videoHeight);
+  
+  // 判定
+  let colorCount = {赤:0,白:0,青:0,黄:0,緑:0};
+  const data = frame.data;
+  for(let i=0;i<data.length;i+=4){
+    const c = detectTeamColor(data[i],data[i+1],data[i+2]);
+    if(c) colorCount[c]++;
+  }
+  const detected = Object.entries(colorCount).sort((a,b)=>b[1]-a[1])[0];
+  const color = (detected[1]>50)?detected[0]:null;
+
+  // 通過検出
+  if(color && color!==lastColor){
+    rank++;
+    const now = performance.now();
+    const diff = now - stopwatchStart + stopwatchElapsed;
+    const ms=Math.floor(diff%1000/10);
+    const s=Math.floor(diff/1000)%60;
+    const m=Math.floor(diff/60000);
+    const timeStr=`${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}.${ms.toString().padStart(2,'0')}`;
+    
+    // タイム描画
+    resultCtx.fillStyle="white";
+    resultCtx.font="16px sans-serif";
+    resultCtx.fillText(`${rank}位(${color}) ${timeStr}`, resultWidth+10, 20*(rank%15+1));
+  }
+  lastColor = color;
+
+  // ラインスキャン画像描画
+  resultWidth += FRAME_WIDTH;
+  resultCanvas.width = resultWidth;
+  resultCtx.drawImage(captureCanvas, x, 0, FRAME_WIDTH, captureCanvas.height,
+                      resultWidth-FRAME_WIDTH, 0, FRAME_WIDTH, resultCanvas.height);
+  document.getElementById("result-container").scrollLeft = resultCanvas.width;
+
+  requestAnimationFrame(processFrame);
+}
+</script>
 </body>
 </html>
